@@ -2,15 +2,12 @@ import scrapy
 import json
 import requests
 from faker import Faker
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
 from scrapy.selector import Selector
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select
-import time
 from ..items import BookingscraperItem
+from .config import key, EMAIL_PASS, EMAIL_USER
+from .proxy_api import ScraperAPIClient
+import smtplib
+from email.message import EmailMessage
 
 
 class PropertySpider(scrapy.Spider):
@@ -30,15 +27,42 @@ class PropertySpider(scrapy.Spider):
             "NoResultsTitle": "No results found",
             "NoResultsText": "There were no rooms matching your preferences.",
         }
+        self.handle_httpstatus_list = [400, 401, 403, 404, 500]
 
         self.main_form_data = {}
+        self.lease = ""
+
+        # Room type and there ids are fixed, so hardcoded
+        self.floor_plan = {
+            "Studio": "1166879",
+            "Ensuite": "1166878",
+            "Twin Studio": "1175818",
+            "Two Bed Apartment": "1166854",
+            "Twin Ensuite": "1175823",
+        }
+
+        # Room tier and there ids are fixed, so hardcoded
+        self.space_options = {
+            "Silver": "453",
+            "Bronze": "454",
+            "Gold": "458",
+            "Platinum": "455",
+            "Diamond": "456",
+        }
 
     def start_requests(self):
         urls = ["https://www.chapter-living.com/booking/"]
+        # response.status==200
+
+        client = ScraperAPIClient(key)
         for url in urls:
-            yield scrapy.Request(url=url, callback=self.parse)
+            yield scrapy.Request(
+                client.scrapyGet(url=url), callback=self.parse
+            )  # using paid proxy which will provide different ip address everytime
 
     def parse(self, response):
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
 
         options = response.css("#BookingAvailabilityForm_Residence option")
         form = response.css("#BookingAvailabilityForm")
@@ -65,11 +89,13 @@ class PropertySpider(scrapy.Spider):
             url="https://www.chapter-living.com/umbraco/surface/BookingAvailabilitySurface/UpdateFormRoomListView",
             formdata=self.post_data,
             callback=self.parse_booking_period_page,
+            errback=self.error_logger,
         )
 
     def parse_booking_period_page(self, response):
-
         # getting the duration of property
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
 
         booking_period = "https://www.chapter-living.com/umbraco/surface/BookingAvailabilitySurface/UpdateBookingPeriods"
         formdata = {"siteId": self.post_data["SiteId"]}
@@ -88,14 +114,23 @@ class PropertySpider(scrapy.Spider):
             url=url,
             formdata=self.post_data,
             callback=self.required_login_detail,
+            errback=self.error_logger,
         )
 
     def required_login_detail(self, response):
 
         # creating the form and passing to the url which will redirect to login page
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
+        self.images = response.css(
+            'source[srcset*="width=2000"][srcset*="height=1000"]::attr(srcset)'
+        ).getall()
+        self.property_name = response.css("p.property::text").get()
+        self.room_type = response.css("p.display-4 strong::text").get()
+        self.description = response.css("div.description p::text").getall()
+        self.pricing = response.css("p.pricing strong::text").get()
+        self.features = response.css("ul.features-list li::text").getall()
 
-        print("manj")
-        print(self.main_form_data)
         floorplan_element = response.css("div#modal-room-1.sp-room")
         if floorplan_element:
             floorplan_id = floorplan_element.attrib.get("data-floorplanid")
@@ -139,10 +174,13 @@ class PropertySpider(scrapy.Spider):
                 formdata=form_data,
                 method="GET",
                 callback=self.login_page,
+                errback=self.error_logger,
             )
 
     def login_page(self, response):
         # filling the signup page with fake details and loggingin
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
 
         application_id = response.xpath(
             '//li[@class="is-hidden"]/input[@name="application[company_application_id]"]/@value'
@@ -199,14 +237,22 @@ class PropertySpider(scrapy.Spider):
             url=f"https://chapterkingscross.prospectportal.global/Apartments/module/application_authentication/action/insert_applicant/property[id]/{pid}/from_check_availability/1",
             formdata=form_data,
             callback=self.after_login,
+            errback=self.error_logger,
         )
 
     def after_login(self, response):
         # removing the filters
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
+
+        self.lease = response.xpath(
+            '//input[@class="student_units_filter"]/@value'
+        ).get()
         url = "https://chapterkingscross.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/reset/is_change_selection/1"
         yield scrapy.FormRequest(
             url=url,
             callback=self.reset_filters,
+            errback=self.error_logger,
         )
 
     def reset_filters(self, response):
@@ -215,10 +261,12 @@ class PropertySpider(scrapy.Spider):
 
         payload = {
             "student_units_filter[lease_start_window_id]": "",
-            "lease_start_window_ids": "180435|180434",
-            "student_units_filter[property_floorplan_ids]": "1166879,1166878,1175818",
-            "all_floorplan_ids": "1166879|1166878|1175818",
-            "all_floorplan_names": "Studio|Ensuite|Twin Studio",
+            "lease_start_window_ids": "|".join(self.lease),
+            "student_units_filter[property_floorplan_ids]": ",".join(
+                self.floor_plan.values()
+            ),
+            "all_floorplan_ids": "|".join(self.floor_plan.values()),
+            "all_floorplan_names": "|".join(self.floor_plan.keys()),
             "student_units_filter[space_configuration_ids]": "",
             "student_units_filter[min_rent]": "",
             "student_units_filter[max_rent]": "",
@@ -237,19 +285,28 @@ class PropertySpider(scrapy.Spider):
             url=url,
             formdata=payload,
             callback=self.property_floorplan_filters,
+            errback=self.error_logger,
         )
 
     def property_floorplan_filters(self, response):
         # adding filter to select all the SPACE OPTION
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
+
         url = "https://chapterkingscross.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/space_configuration_ids"
 
         payload = {
             "student_units_filter[lease_start_window_id]": "",
-            "lease_start_window_ids": "180435|180434",
-            "student_units_filter[property_floorplan_ids]": "1166879,1166878,1175818",
-            "all_floorplan_ids": "1166879|1166878|1175818",
-            "all_floorplan_names": "Studio|Ensuite|Twin Studio",
-            "student_units_filter[space_configuration_ids]": "453,454,458,455,456",
+            "lease_start_window_ids": "|".join(self.lease),
+            "lease_start_window_ids": "|".join(self.lease),
+            "student_units_filter[property_floorplan_ids]": ",".join(
+                self.floor_plan.values()
+            ),
+            "all_floorplan_ids": "|".join(self.floor_plan.values()),
+            "all_floorplan_names": "|".join(self.floor_plan.keys()),
+            "student_units_filter[space_configuration_ids]": ",".join(
+                self.space_options.values()
+            ),
             "student_units_filter[min_rent]": "",
             "student_units_filter[max_rent]": "",
             "student_units_filter[rent_range][min]": "315.00",
@@ -267,11 +324,14 @@ class PropertySpider(scrapy.Spider):
             url=url,
             formdata=payload,
             callback=self.space_configuration_filters,
+            errback=self.error_logger,
         )
 
     def space_configuration_filters(self, response):
 
         # Getting the data of property and sending to mongodb
+        if response.status in self.handle_httpstatus_list:
+            yield scrapy(callback=self.error_logger)
 
         item = BookingscraperItem()
 
@@ -304,5 +364,35 @@ class PropertySpider(scrapy.Spider):
             final_data[self.prop_name].append(element)
         item["property_name"] = self.prop_name
         item["sub_properties"] = final_data[self.prop_name]
+        item["property_images"] = self.images
+        item["property_room_type"] = self.room_type
+        item["property_description"] = self.description
+        item["property_price"] = self.pricing
+        item["property_features"] = self.features
 
+        yield item
+
+    def error_logger(self, response):
+        # Script to send the Failed url details to mail
+        msg = EmailMessage()
+        msg["From"] = EMAIL_USER
+        msg["To"] = EMAIL_USER
+        msg["Subject"] = "Failed Url and Stoped Scraper"
+        msg.set_content(
+            "The scraper has been stoper, Please check the issue and re run script"
+        )
+
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.ehlo()
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.send_message(msg)
+        server.quit()
+        # any another script which will re run the scraper from following URL or send mail
+
+        item = BookingscraperItem()
+
+        item["url"] = response.request._url
+        item["is_failed"] = "true"
+        item["error"] = str(response.getErrorMessage)
         yield item

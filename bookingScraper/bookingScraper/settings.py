@@ -54,7 +54,18 @@ ITEM_PIPELINES = {"bookingScraper.pipelines.BookingscraperPipeline": 500}
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 # DOWNLOADER_MIDDLEWARES = {
 #    "bookingScraper.middlewares.BookingscraperDownloaderMiddleware": 543,
-# }
+
+from shutil import which
+from selenium.webdriver.chrome.service import Service
+
+# service = Service(executable_path="bookingScraper\chromedriver.exe")
+# SELENIUM_DRIVER_NAME = "chrome"
+# SELENIUM_DRIVER_EXECUTABLE_PATH = "bookingScraper\chromedriver"
+# SELENIUM_DRIVER_ARGUMENTS = ["--headless"]
+
+DOWNLOADER_MIDDLEWARES = {
+    "scrapy_selenium.SeleniumMiddleware": 800,
+}
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
