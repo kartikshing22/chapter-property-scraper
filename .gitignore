@@ -160,3 +160,6 @@ cython_debug/
 #.idea/
 .bookingScraper\bookingScraper\spiders\config.py
 bookingScraper/spiders/config.py
+.bookingScraper/spiders/config.py
+bookingScraper\spiders\config.py
+.bookingScraper\spiders\config.py
