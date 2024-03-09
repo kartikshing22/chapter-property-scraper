@@ -48,6 +48,10 @@ HTTPCACHE_ENABLED = False
 # SPIDER_MIDDLEWARES = {
 #    "bookingScraper.middlewares.BookingscraperSpiderMiddleware": 543,
 # }
+RETRY_ENABLED = True
+RETRY_TIMES = 3
+
+RETRY_INITIAL_DELAY = 0.5
 ITEM_PIPELINES = {"bookingScraper.pipelines.BookingscraperPipeline": 500}
 
 # Enable or disable downloader middlewares

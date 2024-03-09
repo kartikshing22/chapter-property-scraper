@@ -167,7 +167,10 @@ class PropertySpider(scrapy.Spider):
                 form_data["BookingPeriod"],
                 form_data["FloorPlan"],
             )
-            url = f"https://chapterkingscross.prospectportal.global/Apartments/module/application_authentication/property[id]/{pid}/property_floorplan[id]/{floor_plan_id}/lease_term_id/{lease_id}/lease_start_window_id/180434/space_configuration_id/454/from_check_availability/1"
+            self.property_link_name = self.property_name.lower().replace(
+                " ", ""
+            )  #'chapterkingscross'
+            url = f"https://{self.property_link_name}.prospectportal.global/Apartments/module/application_authentication/property[id]/{pid}/property_floorplan[id]/{floor_plan_id}/lease_term_id/{lease_id}/lease_start_window_id/180434/space_configuration_id/454/from_check_availability/1"
 
             yield scrapy.FormRequest(
                 url=url,
@@ -234,7 +237,7 @@ class PropertySpider(scrapy.Spider):
         }
 
         yield scrapy.FormRequest(
-            url=f"https://chapterkingscross.prospectportal.global/Apartments/module/application_authentication/action/insert_applicant/property[id]/{pid}/from_check_availability/1",
+            url=f"https://{self.property_link_name}.prospectportal.global/Apartments/module/application_authentication/action/insert_applicant/property[id]/{pid}/from_check_availability/1",
             formdata=form_data,
             callback=self.after_login,
             errback=self.error_logger,
@@ -248,7 +251,7 @@ class PropertySpider(scrapy.Spider):
         self.lease = response.xpath(
             '//input[@class="student_units_filter"]/@value'
         ).get()
-        url = "https://chapterkingscross.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/reset/is_change_selection/1"
+        url = f"https://{self.property_link_name}.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/reset/is_change_selection/1"
         yield scrapy.FormRequest(
             url=url,
             callback=self.reset_filters,
@@ -257,7 +260,7 @@ class PropertySpider(scrapy.Spider):
 
     def reset_filters(self, response):
         # adding filter to select all the FLOOR PLANS
-        url = "https://chapterkingscross.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/property_floorplan_ids"
+        url = f"https://{self.property_link_name}.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/property_floorplan_ids"
 
         payload = {
             "student_units_filter[lease_start_window_id]": "",
@@ -293,7 +296,7 @@ class PropertySpider(scrapy.Spider):
         if response.status in self.handle_httpstatus_list:
             yield scrapy(callback=self.error_logger)
 
-        url = "https://chapterkingscross.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/space_configuration_ids"
+        url = f"https://{self.property_link_name}.prospectportal.global/Apartments/module/application_unit_info/action/view_unit_spaces_for_student//is_ajax/1/selected_filter/space_configuration_ids"
 
         payload = {
             "student_units_filter[lease_start_window_id]": "",
@@ -379,10 +382,11 @@ class PropertySpider(scrapy.Spider):
         msg["To"] = EMAIL_USER
         msg["Subject"] = "Failed Url and Stoped Scraper"
         msg.set_content(
-            "The scraper has been stoper, Please check the issue and re run script"
+            f"The scraper has been stopped for url {response.request._url}, Please check the issue and re run script"
         )
 
         server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.ehlo()
         server.starttls()
         server.ehlo()
         server.login(EMAIL_USER, EMAIL_PASS)
