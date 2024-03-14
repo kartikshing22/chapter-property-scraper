@@ -9,9 +9,12 @@ from faker import Faker
 from ..items import BookingscraperItem
 from .config import key
 from scrapy_selenium import SeleniumRequest
+from .config import key, EMAIL_PASS, EMAIL_USER
 from selenium.webdriver.chrome.service import Service
 import time
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from .proxy_api import ScraperAPIClient
 
 
 class BookingSpider(scrapy.Spider):
@@ -22,14 +25,20 @@ class BookingSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super(BookingSpider, self).__init__(*args, **kwargs)
         service = Service(executable_path="./chromedriver.exe")
-        options = webdriver.ChromeOptions()
+        self.client = ScraperAPIClient(key)
+        options = Options()
+        # options.add_argument("--headless")
+        # options.add_argument(
+        #     "--disable-gpu"
+        # )  # Disable GPU acceleration to avoid possible errors
+        options.add_argument("--start-maximized")
         self.driver = webdriver.Chrome(service=service, options=options)
 
     def start_requests(self):
         urls = ["https://www.chapter-living.com/booking/"]
         for url in urls:
             yield SeleniumRequest(
-                url=url,
+                url=self.client.scrapyGet(url=url),
                 callback=self.parse,
             )
 
@@ -40,6 +49,7 @@ class BookingSpider(scrapy.Spider):
         property_dropdown = self.driver.find_element(
             By.ID, "BookingAvailabilityForm_Residence"
         )
+        time.sleep(2)
         self.driver.find_element(By.ID, "onetrust-reject-all-handler").click()
 
         # Selecting Property
