@@ -17,3 +17,4 @@ class BookingscraperItem(scrapy.Item):
     property_description = scrapy.Field()
     property_price = scrapy.Field()
     property_features = scrapy.Field()
+    created_at = scrapy.Field()
